@@ -1,0 +1,46 @@
+library(dplyr)
+library(plyr)
+library(survival)
+
+### EMPIRICAL P-VALUE
+
+# load in the input for the Cox regression and its results (*coxph*)
+# select only the ICD-9 diagnoses that were nominally significant for subsequent analyses
+
+load("/*/mat_dx_summarized_1010_21month_binary_noSES_80193ppl.rdat")           
+colnames(asd01) <- colnames(asd01) %>% gsub("^X", "", .)
+
+nom <- read.csv("Dropbox/R_Code_Meuchedet/output_matdis/nom_sig_asd_subcoh_count_SES_pregall_80193ppl.csv")
+nom[,c("X", "X.1")] <- NULL
+nom$ICD9 <- as.character(nom$ICD9)
+#nom$ICD9 <- nom$ICD9 %>% gsub("^X", "", .)
+
+asd_preg5 <- cbind(asd01[,1:12], asd01[,colnames(asd01) %in% nom$ICD9], asd01[,172], asd01[,173])
+colnames(asd_preg5)[39:40] <- c("w", "DOBY")
+
+table(asd_preg5$ASD)
+#0     1 
+#79061  1132 
+
+idx <- cbind(asd_preg5$time_fu, asd_preg5$ASD)  ## create a matrix with ASD diagnosis and follow up time that will be sampled in permutations
+
+
+### permutation code for a single diagnosis
+
+p <- data.frame()
+dx <- list()
+
+for(i in 1:1000){
+  dx[[i]] <- idx[sample(nrow(idx),size=nrow(idx),replace=FALSE),]  
+  a <- coxph(Surv(dx[[i]][,1], dx[[i]][,2])~asd_preg5[,13] + DOBY + mage + preg_all + SES + cluster(MID), weights=w, data=asd_preg5)   
+  p[i,1] <- summary(a)$coefficients[1,6]
+}
+
+p2 <- data.frame()
+for(i in 1:1000){
+  p2[i,1][p[i,1] >= nom[1,2]] <- 0
+  p2[i,1][p[i,1] < nom[1,2]] <- 1
+}
+
+(sum(p2[,1]))/1000    
+
