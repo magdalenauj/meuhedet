@@ -1,0 +1,393 @@
+## test if missingness affects the results in mat dx analyses 
+
+library(biostat3)
+library(dplyr)
+library(plyr)
+library(miceadds)
+library(glmnet)
+library(clusterSEs)
+library(survival)
+library(reshape2)
+library(psych)
+library(mice)
+
+matdx <- read.csv("/*/mat_dx3.csv", as.is=T)
+matdx <- matdx[!is.na(matdx$DX_CODE),]
+
+matdx$X <- NULL
+matdx$dxdate <- paste(matdx$DX_CODE, matdx$DX_DATE, matdx$ID)
+matdx <- matdx[!duplicated(matdx$dxdate),]   ## remove diagnoses given to the same woman >1 on the same date
+matdx$dxdate <- NULL
+dim(matdx)                    # 18005625 rows
+
+
+min(matdx$DX_DATE)    # earliest recorded maternal diagnosis is in May 1995
+
+## recode C (?) codes in the dataset
+
+matdx$DX_CODE[matdx$DX_CODE == "C273"] <- "429.3"
+matdx$DX_CODE[matdx$DX_CODE == "C157"] <- "425.1"
+
+## substring
+
+matdx$YOB <- as.numeric(substring(matdx$DOB, 1,4))
+
+matdx <- subset(matdx, matdx$YOB >= 1999)  ##  rows
+
+length(unique(matdx$ID))                   ## 88719 unique child IDs
+length(unique(matdx$MID))                  ## 34212 unique maternal IDs
+
+matdx$icd10 <- substring(matdx$DX_CODE, 1, 1)
+matdx$icd103 <- substring(matdx$DX_CODE, 1, 3)
+#matdx$icd103[matdx$icd10 == "E"] <- substring(matdx$DX_CODE, 1, 4)
+
+
+## recode F and Z diagnoses (ICD-10) to ICD-9 
+
+matdx$icd103[matdx$icd103 == "F00"] <- "290"
+matdx$icd103[matdx$icd103 == "F01"] <- "290"
+matdx$icd103[matdx$icd103 == "F02"] <- "294" 
+matdx$icd103[matdx$icd103 == "F04"] <- "294"
+matdx$icd103[matdx$icd103 == "F05"] <- "293"
+matdx$icd103[matdx$icd103 == "F06"] <- "293"
+matdx$icd103[matdx$icd103 == "F07"] <- "310"
+matdx$icd103[matdx$icd103 == "F10"] <- "305"
+matdx$icd103[matdx$icd103 == "F12"] <- "305"
+matdx$icd103[matdx$icd103 == "F13"] <- "292"
+matdx$icd103[matdx$icd103 == "F19"] <- "305"
+matdx$icd103[matdx$icd103 == "F20"] <- "295"
+matdx$icd103[matdx$icd103 == "F21"] <- "301"
+matdx$icd103[matdx$icd103 == "F22"] <- "297"
+matdx$icd103[matdx$icd103 == "F23"] <- "298"
+matdx$icd103[matdx$icd103 == "F25"] <- "295"
+matdx$icd103[matdx$icd103 == "F29"] <- "298"
+matdx$icd103[matdx$icd103 == "F30"] <- "296"
+matdx$icd103[matdx$icd103 == "F31"] <- "296"
+matdx$icd103[matdx$icd103 == "F32"] <- "296"
+matdx$icd103[matdx$icd103 == "F33"] <- "296"
+matdx$icd103[matdx$icd103 == "F34"] <- "300"
+matdx$icd103[matdx$icd103 == "F39"] <- "296"
+matdx$icd103[matdx$icd103 == "F40"] <- "300"
+matdx$icd103[matdx$icd103 == "F41"] <- "300"
+matdx$icd103[matdx$icd103 == "F42"] <- "300"
+matdx$icd103[matdx$icd103 == "F43"] <- "309"
+matdx$icd103[matdx$icd103 == "F44"] <- "300"
+matdx$icd103[matdx$icd103 == "F45"] <- "300"
+matdx$icd103[matdx$icd103 == "F48"] <- "310"
+matdx$icd103[matdx$icd103 == "F50"] <- "307"
+matdx$icd103[matdx$icd103 == "F51"] <- "307"
+matdx$icd103[matdx$icd103 == "F52"] <- "302"
+matdx$icd103[matdx$icd103 == "F53"] <- "648"
+matdx$icd103[matdx$icd103 == "F54"] <- "316"
+matdx$icd103[matdx$icd103 == "F55"] <- "305"
+matdx$icd103[matdx$icd103 == "F60"] <- "301"
+matdx$icd103[matdx$icd103 == "F61"] <- "301" ## inferred from desc
+matdx$icd103[matdx$icd103 == "F62"] <- "301" ## inferred from desc
+matdx$icd103[matdx$icd103 == "F63"] <- "312"
+matdx$icd103[matdx$icd103 == "F64"] <- "302"
+matdx$icd103[matdx$icd103 == "F65"] <- "302"
+matdx$icd103[matdx$icd103 == "F66"] <- "302"
+matdx$icd103[matdx$icd103 == "F68"] <- "301"
+matdx$icd103[matdx$icd103 == "F80"] <- "315"
+matdx$icd103[matdx$icd103 == "F81"] <- "315"
+matdx$icd103[matdx$icd103 == "F84"] <- "299"
+matdx$icd103[matdx$icd103 == "F90"] <- "314"
+matdx$icd103[matdx$icd103 == "F91"] <- "312"
+matdx$icd103[matdx$icd103 == "F92"] <- "312" ## inferred from desc
+matdx$icd103[matdx$icd103 == "F93"] <- "313"
+matdx$icd103[matdx$icd103 == "F94"] <- "313"
+matdx$icd103[matdx$icd103 == "F95"] <- "307"
+matdx$icd103[matdx$icd103 == "F98"] <- "313"
+matdx$icd103[matdx$icd103 == "F99"] <- "300"
+
+matdx$icd103[matdx$icd103 == "Z00"] <- "V70"
+matdx$icd103[matdx$icd103 == "Z02"] <- "V70"
+matdx$icd103[matdx$icd103 == "Z03"] <- "V71"
+matdx$icd103[matdx$icd103 == "Z04"] <- "V71"
+matdx$icd103[matdx$icd103 == "Z55"] <- "V62"
+matdx$icd103[matdx$icd103 == "Z56"] <- "V62"
+matdx$icd103[matdx$icd103 == "Z60"] <- "V62"
+matdx$icd103[matdx$icd103 == "Z61"] <- "V61"  # from desc
+matdx$icd103[matdx$icd103 == "Z62"] <- "V61"
+matdx$icd103[matdx$icd103 == "Z63"] <- "V61"
+matdx$icd103[matdx$icd103 == "Z64"] <- "V61"
+matdx$icd103[matdx$icd103 == "Z65"] <- "V62"
+matdx$icd103[matdx$icd103 == "Z70"] <- "V65"
+matdx$icd103[matdx$icd103 == "Z71"] <- "V65"
+matdx$icd103[matdx$icd103 == "Z72"] <- "V69"
+matdx$icd103[matdx$icd103 == "Z73"] <- "V69"
+matdx$icd103[matdx$icd103 == "Z75"] <- "V63"
+matdx$icd103[matdx$icd103 == "Z76"] <- "V68"
+matdx$icd103[matdx$icd103 == "Z81"] <- "V18"
+matdx$icd103[matdx$icd103 == "Z82"] <- "V19"
+matdx$icd103[matdx$icd103 == "Z85"] <- "V10"
+matdx$icd103[matdx$icd103 == "Z86"] <- "V13"
+matdx$icd103[matdx$icd103 == "Z87"] <- "V12"
+matdx$icd103[matdx$icd103 == "Z91"] <- "V15"
+
+## remove rows with ICD10 codes that could not be translated to ICD9
+
+matdx <- matdx[matdx$icd103 != "Z36",]
+matdx <- matdx[matdx$icd103 != "Z50",]
+matdx <- matdx[matdx$icd103 != "Z54",]
+matdx <- matdx[matdx$icd103 != "F38",]    ## 5017419 rows, 971 unique
+
+
+## summarize prenancy diagnostic data 
+
+library(dplyr)
+
+matdx <- 
+  transform(matdx,
+            preg = ifelse((date_dif < 0 & date_dif >= -636), 1, 0))    # assign values 0/1 if the dx during pregnancy + year before
+
+matdx2 <- subset(matdx, matdx$preg == 1)                        # select pregnancy diagnoses 
+
+mat_miss <- setdiff(unique(matdx$ID), unique(matdx2$ID))        # add info on IDs whose mothers didn't have any pregnancy diagnoses
+matdx_m <- subset(matdx, matdx$ID %in% mat_miss)                # (removes lots of rows with preg=0 that slow things down without adding any info)
+matdx_m <- matdx_m[!duplicated(matdx_m$ID),]
+
+matdx3 <- rbind(matdx2, matdx_m)
+
+count <- as.data.frame(matdx3 %>% group_by(ID, icd103) %>% filter (preg=="1") %>% tally())   # count number of all icd codes (lev3) in pregnancy within icd code
+count$preg_n3 <- count$n
+count$n <- NULL
+
+count_t <- as.data.frame(matdx3 %>% group_by(ID) %>% filter (preg=="1") %>% tally())            # count number of all icd codes (lev3) in pregnancy 
+count_t$preg_all <- count_t$n
+count_t$n <- NULL
+
+## merge demographic info with dx counts
+
+matdx4 <- merge(matdx3, count, by=c("ID", "icd103"), all.x=T)
+matdx4$preg_n3[is.na(matdx4$preg_n3)] <- 0
+
+matdx4 <- merge(matdx4, count_t, by="ID", all.x=T)
+matdx4$preg_all[is.na(matdx4$preg_all)] <- 0
+
+matdx4 <- as.data.frame(matdx4 %>%
+                          select(ID, MID, FID, DOB, DOD, SEX, SES, mage, page, date_dif, DX_CODE, icd103, date_dif, preg_n3, preg_all, weight, subcoh) %>%
+                          filter (  preg_n3 != "NA" ) %>%
+                          group_by(ID, icd103) %>% filter(row_number() == 1))   ## dataset with pregnancy diagnoses only; only one line per unique level 3 
+
+matdx4 <- as.data.frame(matdx4)
+
+length(unique(matdx4$ID))                   ## 88719 unique child IDs
+length(unique(matdx4$MID))                  ## 34212 unique maternal IDs
+
+## identify ASD cases and compute follow-up time
+
+allasd9 <- read.csv("/Users/Magdalena/Dropbox/R_Code_Meuchedet/matdx_asd.csv")
+matdx4 <- merge(matdx4, allasd9, by="ID", all.x=T)
+rm(allasd9)
+
+matdx4$fu_dateY <- 2015
+matdx4$fu_dateM <- 01
+matdx4$fu_dateD <- 26
+
+matdx4$fu_date <- as.Date(with(matdx4, paste(fu_dateY, fu_dateM, fu_dateD,sep="-")), "%Y-%m-%d") 
+
+matdx4$ASD_DX_DATE[is.na(matdx4$ASD_DX_DATE)] <- "2030-10-10"
+matdx4$DOD[is.na(matdx4$DOD)] <- "2030-10-10"
+
+fu_min <- transform(matdx4, min = pmin(fu_date, ASD_DX_DATE, DOD, na.rm=T))      # choose the earliest follow-up end date
+
+a <- fu_min[, c("ID", "min")]
+a <- as.data.frame(a)
+
+matdx4$fu_dateY <- NULL
+matdx4$fu_dateM <- NULL
+matdx4$fu_dateD <- NULL
+
+matdx4 <- cbind(matdx4, a)
+matdx4$DOB <- as.Date(matdx4$DOB, "%Y-%m-%d")
+matdx4$time_fu <- as.numeric (difftime(matdx4$min , matdx4$DOB , units = c("days")))
+
+matdx4$ASD <- 0
+matdx4$ASD[!is.na(matdx4$ASD_DX_DESC)] <- 1
+
+matdx4$ASD[is.na(matdx4$ASD)] <- 0
+matdx4$preg_n3[is.na(matdx4$preg_n3)] <- 0
+
+matdx4$ASD_DX_DESC <- NULL
+matdx4$ASD_DX_DATE <- NULL
+matdx4$min <- NULL
+matdx4$fu_dateD <- NULL
+matdx4$fu_dateM <- NULL
+matdx4$fu_dateY <- NULL
+
+
+## identify missing SES and impute using mice function
+
+a <-subset(matdx4, is.na(matdx4$SES))
+length(unique(a$MID))  ## 3595
+length(unique(a$ID))   ## 8511
+
+a <-subset(matdx4, is.na(matdx4$mage))
+length(unique(a$MID))  ## 0
+length(unique(a$ID))   ## 0
+
+## exclude v.young/old mothers/fathers
+
+matdx4 <- subset(matdx4, matdx4$mage >= 13 & matdx4$mage <= 55)
+length(unique(matdx4$MID))  ## 34212 - 34202 = 10
+length(unique(matdx4$ID))   ## 88719 - 88701 = 18    
+
+matdx4 <- subset(matdx4, matdx4$page > 13 | is.na(matdx4$page))
+length(unique(matdx4$MID))  ## 34202 - 34200 = 2
+length(unique(matdx4$ID))   ## 88701 - 88696 = 5
+
+dx <- unique(as.character(matdx4$icd103)) # 864
+
+asd_preg <- as.data.frame(matdx4 %>%
+                            select(MID, ID, DOB, SEX, SES, time_fu, mage, page, icd103, preg_n3, preg_all, ASD, weight, subcoh)) 
+
+asd_preg2 <- dcast(asd_preg, ID + MID + DOB + SEX + SES + mage + page + ASD + time_fu + weight + subcoh + preg_all ~ icd103, value.var="preg_n3")
+
+##### weights calculation
+
+asd_preg2$subcoh[asd_preg2$ASD == 1] <- 0
+asd_preg2$w[asd_preg2$subcoh == 0] <- 1
+asd_preg2$w[asd_preg2$subcoh == 1 & asd_preg2$weight == 1] <- 5.128
+asd_preg2$w[asd_preg2$subcoh == 1 & asd_preg2$weight == 2] <- 2.841
+asd_preg2$w[asd_preg2$subcoh == 1 & asd_preg2$weight == 3] <- 1.853
+asd_preg2$w[asd_preg2$subcoh == 1 & asd_preg2$weight == 4] <- 1.364
+asd_preg2$w[asd_preg2$subcoh == 1 & asd_preg2$weight >= 5] <- 1.078
+
+length(unique(asd_preg2$ID))  ## 88696
+length(unique(asd_preg2$MID)) ## 34200
+
+asd_preg2$DOBY <-  as.factor(substring(asd_preg2$DOB, 1, 4))
+
+asd_preg2 <- subset(asd_preg2, asd_preg2$DOBY != "NA")  # MID = 34200, ID =  88696
+asd_preg2 <- subset(asd_preg2, asd_preg2$mage != "NA")  # MID = 34200, ID =  88696
+asd_preg2 <- subset(asd_preg2, asd_preg2$MID != "NA")   # MID = 34200, ID =  88696
+asd_preg2 <- subset(asd_preg2, asd_preg2$w != "NA")     # MID = 34200, ID =  88696
+
+table(asd_preg2$ASD)
+# 0     1 
+#87371  1327   
+
+asd_preg2$X <- NULL                                     ## 877 - 13 = 864 unique diagnoses 
+
+asd_preg2[,13:876][is.na(asd_preg2[,13:876])] <- 0
+
+asd_preg3 <- asd_preg2[ - as.numeric(which(apply(asd_preg2, 2, var) == 0))]  ## remove columns with no variance - 863-12 = 851 dx 
+missed_dx <- setdiff(colnames(asd_preg2), colnames(asd_preg3)) #  1 dx (74.)
+
+
+## get frequencies of diagnoses and select diagnoses present in at least 10 cases and 10 controls
+
+asd01 <- asd_preg3
+
+for(i in 13:875){
+  asd01[,i][asd01[,i] == 0] <- 0
+  asd01[,i][asd01[,i] != 0] <- 1
+}
+
+freq <- list()
+
+for(i in 13:875){
+  freq[[i]] <- table(asd01[,i], asd01$ASD)
+}
+
+freqs <- data.frame()
+
+for(i in 13:875){
+  nex_ctrl <- freq[[i]][1]
+  ex_ctrl <- freq[[i]][2]
+  nex_case <- freq[[i]][3]
+  ex_case <- freq[[i]][4]
+  freqs[i,1:4] <- cbind(nex_ctrl, ex_ctrl, nex_case, ex_case)
+}
+
+freqs <- freqs[13:875,]
+freqs$icd <- colnames(asd01[,13:875])
+sel <- subset(freqs, freqs$V2 >= 10 & freqs$V4 >= 10)
+dx <- sel$icd      ## identify dx with >10 either cases or controls exposed - 167 dx 
+
+
+
+## perform logistic regression in sample without imputation 
+## in first 10 diagnoses with at least 10 cases and 10 controls 
+## to verify the results are broadly similar in glm and coxph
+
+asd01 <- cbind(asd01[,1:12], asd01[,dx], asd01[,876], asd01[,877])
+colnames(asd01)[180:181] <- c("w", "DOBY")
+asd01[,c(13:179,181)] <- lapply(asd01[,c(13:179,181)], factor)
+
+p <- data.frame()
+
+for(i in 13:23){
+  a <- glm(ASD~asd01[,i] + DOBY + mage + preg_all + SES + cluster(MID), weights=w, data=asd01, family="binomial")
+  p[i,1] <- summary(a)$coefficients[2,4]  # p-val
+  p[i,2] <- eform(a)[2,1]                 # HR
+  p[i,3] <- eform(a)[2,2]                 # 2.5%
+  p[i,4] <- eform(a)[2,3]                 # 97.5%
+  p[i,5] <- colnames(asd01[i])           # icd code
+}
+
+p_binomial <- p[!is.na(p[,1]),]
+colnames(p_binomial) <- c("p-val", "HR", "2.5%", "97.5%", "ICD-9")
+write.csv(p_binomial, "*/log_noimp.csv")
+
+p <- data.frame()
+
+for(i in 13:23){
+  a <- coxph(Surv(time_fu, ASD)~asd01[,i] + DOBY + mage + preg_all + SES + cluster(MID), weights=w, data=asd01)
+  p[i,1] <- summary(a)$coefficients[1,6]  # p-val
+  p[i,2] <- eform(a)[1,1]                 # HR
+  p[i,3] <- eform(a)[1,2]                 # 2.5%
+  p[i,4] <- eform(a)[1,3]                 # 97.5%
+  p[i,5] <- colnames(asd01[i])           # icd code
+}
+
+p_cph <- p[!is.na(p[,1]),]
+colnames(p_cph) <- c("p-val", "HR", "2.5%", "97.5%", "ICD-9")
+write.csv(p_cph, "*/cph_noimp.csv")
+
+## perform logistic regression in sample with and without imputation 
+## in first 10 diagnoses with at least 10 cases and 10 controls 
+## to assess impact of missingness on results
+
+asd01_sub <- asd01[,3:12]
+
+init = mice(asd01_sub, maxit=5) 
+
+imputed <- complete(init) 
+write.csv(imputed, "*/mat_dx_summarized_1010_21month_binary_imputeSES.csv")
+
+asd01_new <- cbind(asd01[,1:2], imputed, asd01[,13:ncol(asd01)])
+
+p <- data.frame()
+
+for(i in 13:23){
+  a <- glm(ASD~asd01[,i] + DOBY + mage + preg_all + SES + cluster(MID), weights=w, data=asd01_new, family="binomial")
+  p[i,1] <- summary(a)$coefficients[2,4]  # p-val
+  p[i,2] <- eform(a)[2,1]                 # HR
+  p[i,3] <- eform(a)[2,2]                 # 2.5%
+  p[i,4] <- eform(a)[2,3]                 # 97.5%
+  p[i,5] <- colnames(asd01[i])           # icd code
+}
+
+p_impute <- p[!is.na(p[,1]),]
+colnames(p_impute) <- c("p-val", "HR", "2.5%", "97.5%", "ICD-9")
+write.csv(p_impute, "*/log_imp.csv")
+
+
+p <- data.frame()
+
+for(i in 13:23){
+  a <- glm(ASD~asd01[,i] + DOBY + mage + preg_all + SES + cluster(MID), weights=w, data=asd01, family="binomial")
+  p[i,1] <- summary(a)$coefficients[2,4]  # p-val
+  p[i,2] <- eform(a)[2,1]                 # HR
+  p[i,3] <- eform(a)[2,2]                 # 2.5%
+  p[i,4] <- eform(a)[2,3]                 # 97.5%
+  p[i,5] <- colnames(asd01[i])           # icd code
+}
+
+p_miss <- p[!is.na(p[,1]),]
+colnames(p_miss) <- c("p-val", "HR", "2.5%", "97.5%", "ICD-9")
+write.csv(p_miss, "Dropbox/*/log_noimp.csv")
+
+
