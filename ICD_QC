@@ -1,0 +1,179 @@
+library(biostat3)
+library(dplyr)
+library(plyr)
+library(miceadds)
+library(glmnet)
+library(clusterSEs)
+library(survival)
+library(reshape2)
+library(psych)
+library(mice)
+
+matdx <- read.csv("/*/mat_dx3.csv", as.is=T)
+matdx <- matdx[!is.na(matdx$DX_CODE),]
+
+matdx$X <- NULL
+matdx$dxdate <- paste(matdx$DX_CODE, matdx$DX_DATE, matdx$ID)
+matdx <- matdx[!duplicated(matdx$dxdate),]                      ## remove diagnoses given to the same woman >1 on the same date
+matdx$dxdate <- NULL
+dim(matdx)                                                       # 18005625 rows
+
+
+min(matdx$DX_DATE)                                               # earliest recorded maternal diagnosis is in May 1995
+
+
+## substring
+
+matdx$YOB <- as.numeric(substring(matdx$DOB, 1,4))
+
+matdx <- subset(matdx, matdx$YOB >= 1999)  ##  rows
+
+length(unique(matdx$ID))                   ## 88719 unique child IDs
+length(unique(matdx$MID))                  ## 34212 unique maternal IDs
+
+matdx$icd10 <- substring(matdx$DX_CODE, 1, 1)
+matdx$icd103 <- substring(matdx$DX_CODE, 1, 3)
+#matdx$icd103[matdx$icd10 == "E"] <- substring(matdx$DX_CODE, 1, 4)
+
+## remove procedure and administrative codes in the dataset
+
+matdx <- matdx[matdx$icd103 != "87.",]
+matdx <- matdx[matdx$icd103 != "89.",]
+matdx <- matdx[matdx$icd103 != "95.",]
+matdx <- matdx[matdx$icd103 != "85.",]
+matdx <- matdx[matdx$icd103 != "81.",]
+matdx <- matdx[matdx$icd103 != "36.",]
+matdx <- matdx[matdx$icd103 != "34.",]
+matdx <- matdx[matdx$icd103 != "05.",]
+matdx <- matdx[matdx$icd103 != "74.",]
+matdx <- matdx[matdx$icd103 != "79.",]
+
+matdx <- matdx[matdx$icd103 != "A01",]
+matdx <- matdx[matdx$icd103 != "A02",]
+matdx <- matdx[matdx$icd103 != "A03",]
+matdx <- matdx[matdx$icd103 != "A04",]
+matdx <- matdx[matdx$icd103 != "A05",]
+matdx <- matdx[matdx$icd103 != "A06",]
+matdx <- matdx[matdx$icd103 != "A07",]
+matdx <- matdx[matdx$icd103 != "A08",]
+matdx <- matdx[matdx$icd103 != "A09",]                    # 15657308 rows
+
+## recode F and Z diagnoses (ICD-10) to ICD-9 
+
+matdx$icd103[matdx$icd103 == "76."] <- "V76"  ## inferred from the description
+
+matdx$icd103[matdx$icd103 == "F00"] <- "290"
+matdx$icd103[matdx$icd103 == "F01"] <- "290"
+matdx$icd103[matdx$icd103 == "F02"] <- "294" 
+matdx$icd103[matdx$icd103 == "F04"] <- "294"
+matdx$icd103[matdx$icd103 == "F05"] <- "293"
+matdx$icd103[matdx$icd103 == "F06"] <- "293"
+matdx$icd103[matdx$icd103 == "F07"] <- "310"
+matdx$icd103[matdx$icd103 == "F10"] <- "305"
+matdx$icd103[matdx$icd103 == "F12"] <- "305"
+matdx$icd103[matdx$icd103 == "F13"] <- "292"
+matdx$icd103[matdx$icd103 == "F19"] <- "305"
+matdx$icd103[matdx$icd103 == "F20"] <- "295"
+matdx$icd103[matdx$icd103 == "F21"] <- "301"
+matdx$icd103[matdx$icd103 == "F22"] <- "297"
+matdx$icd103[matdx$icd103 == "F23"] <- "298"
+matdx$icd103[matdx$icd103 == "F25"] <- "295"
+  matdx$icd103[matdx$icd103 == "F29"] <- "298"
+  matdx$icd103[matdx$icd103 == "F30"] <- "296"
+  matdx$icd103[matdx$icd103 == "F31"] <- "296"
+  matdx$icd103[matdx$icd103 == "F32"] <- "296"
+  matdx$icd103[matdx$icd103 == "F33"] <- "296"
+  matdx$icd103[matdx$icd103 == "F34"] <- "300"
+  matdx$icd103[matdx$icd103 == "F39"] <- "296"
+  matdx$icd103[matdx$icd103 == "F40"] <- "300"
+  matdx$icd103[matdx$icd103 == "F41"] <- "300"
+  matdx$icd103[matdx$icd103 == "F42"] <- "300"
+  matdx$icd103[matdx$icd103 == "F43"] <- "309"
+  matdx$icd103[matdx$icd103 == "F44"] <- "300"
+  matdx$icd103[matdx$icd103 == "F45"] <- "300"
+  matdx$icd103[matdx$icd103 == "F48"] <- "310"
+  matdx$icd103[matdx$icd103 == "F50"] <- "307"
+  matdx$icd103[matdx$icd103 == "F51"] <- "307"
+  matdx$icd103[matdx$icd103 == "F52"] <- "302"
+  matdx$icd103[matdx$icd103 == "F53"] <- "648"
+  matdx$icd103[matdx$icd103 == "F54"] <- "316"
+  matdx$icd103[matdx$icd103 == "F55"] <- "305"
+  matdx$icd103[matdx$icd103 == "F60"] <- "301"
+  matdx$icd103[matdx$icd103 == "F61"] <- "301" ## inferred from desc
+  matdx$icd103[matdx$icd103 == "F62"] <- "301" ## inferred from desc
+  matdx$icd103[matdx$icd103 == "F63"] <- "312"
+  matdx$icd103[matdx$icd103 == "F64"] <- "302"
+  matdx$icd103[matdx$icd103 == "F65"] <- "302"
+  matdx$icd103[matdx$icd103 == "F66"] <- "302"
+  matdx$icd103[matdx$icd103 == "F68"] <- "301"
+  matdx$icd103[matdx$icd103 == "F80"] <- "315"
+  matdx$icd103[matdx$icd103 == "F81"] <- "315"
+  matdx$icd103[matdx$icd103 == "F84"] <- "299"
+  matdx$icd103[matdx$icd103 == "F90"] <- "314"
+  matdx$icd103[matdx$icd103 == "F91"] <- "312"
+  matdx$icd103[matdx$icd103 == "F92"] <- "312" ## inferred from desc
+  matdx$icd103[matdx$icd103 == "F93"] <- "313"
+  matdx$icd103[matdx$icd103 == "F94"] <- "313"
+  matdx$icd103[matdx$icd103 == "F95"] <- "307"
+  matdx$icd103[matdx$icd103 == "F98"] <- "313"
+  matdx$icd103[matdx$icd103 == "F99"] <- "300"
+
+matdx$icd103[matdx$icd103 == "Z00"] <- "V70"
+matdx$icd103[matdx$icd103 == "Z02"] <- "V70"
+matdx$icd103[matdx$icd103 == "Z03"] <- "V71"
+matdx$icd103[matdx$icd103 == "Z04"] <- "V71"
+matdx$icd103[matdx$icd103 == "Z55"] <- "V62"
+matdx$icd103[matdx$icd103 == "Z56"] <- "V62"
+matdx$icd103[matdx$icd103 == "Z60"] <- "V62"
+matdx$icd103[matdx$icd103 == "Z61"] <- "V61"  # from desc
+matdx$icd103[matdx$icd103 == "Z62"] <- "V61"
+matdx$icd103[matdx$icd103 == "Z63"] <- "V61"
+matdx$icd103[matdx$icd103 == "Z64"] <- "V61"
+matdx$icd103[matdx$icd103 == "Z65"] <- "V62"
+matdx$icd103[matdx$icd103 == "Z70"] <- "V65"
+matdx$icd103[matdx$icd103 == "Z71"] <- "V65"
+matdx$icd103[matdx$icd103 == "Z72"] <- "V69"
+matdx$icd103[matdx$icd103 == "Z73"] <- "V69"
+matdx$icd103[matdx$icd103 == "Z75"] <- "V63"
+matdx$icd103[matdx$icd103 == "Z76"] <- "V68"
+matdx$icd103[matdx$icd103 == "Z81"] <- "V18"
+matdx$icd103[matdx$icd103 == "Z82"] <- "V19"
+matdx$icd103[matdx$icd103 == "Z85"] <- "V10"
+matdx$icd103[matdx$icd103 == "Z86"] <- "V13"
+matdx$icd103[matdx$icd103 == "Z87"] <- "V12"
+matdx$icd103[matdx$icd103 == "Z91"] <- "V15"
+
+matdx$icd103[matdx$icd103 == "78."] <- "787"  ## inferred from desc 
+
+## recode C (?) codes in the dataset
+
+matdx$DX_CODE[matdx$DX_CODE == "C273"] <- "429.3"
+matdx$DX_CODE[matdx$DX_CODE == "C157"] <- "425.1"
+
+length(unique(matdx$icd103))    ## 950 unique diagnoses prior to filtering
+
+## remove rows with ICD10 codes that could not be translated to ICD9 
+## or could not be plausibly diagnosed in women 
+
+matdx <- matdx[matdx$icd103 != "856",]
+matdx <- matdx[matdx$icd103 != "857",]
+matdx <- matdx[matdx$icd103 != "858",]
+matdx <- matdx[matdx$icd103 != "888",]
+matdx <- matdx[matdx$icd103 != "898",]
+matdx <- matdx[matdx$icd103 != "899",]
+matdx <- matdx[matdx$icd103 != "600",]
+matdx <- matdx[matdx$icd103 != "601",]
+matdx <- matdx[matdx$icd103 != "602",]
+matdx <- matdx[matdx$icd103 != "603",]
+matdx <- matdx[matdx$icd103 != "604",]
+matdx <- matdx[matdx$icd103 != "605",]
+matdx <- matdx[matdx$icd103 != "606",]
+matdx <- matdx[matdx$icd103 != "607",]
+matdx <- matdx[matdx$icd103 != "608",]
+matdx <- matdx[matdx$icd103 != "Z36",]
+matdx <- matdx[matdx$icd103 != "Z50",]
+matdx <- matdx[matdx$icd103 != "Z54",]
+matdx <- matdx[matdx$icd103 != "F38",]    ## 15648269 rrows
+
+length(unique(matdx$icd103))    ## 931 unique diagnoses after filtering
+
