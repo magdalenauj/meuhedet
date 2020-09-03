@@ -1,0 +1,20 @@
+For questions regarding data availability, please contact Drs. Arad Kodesh (aradkodesh@gmail.com) and Stephen Levine (slevine@research.haifa.ac.il). 
+
+mat_dx3.csv is a dataset organised by maternal diagnosis - child ID pairs; each row is different maternal diagnosis, including information on the diagnosis itself (code, description, date), as well as child’s demographic info (SES, parental ages, DOB). Each maternal diagnosis may appear multiple times in the dataset, linked to different child IDs (siblings). 
+“Subcoh” variable indicated whether the child was ascertained as part of the random subsample of the Meuhedet birth cohort (1) or due to their / their sibling’s ASD diagnosis (0). Children ascertained through both strategies were considered 0, and the duplicate records were removed. 
+“Weights” variable indicates number of distinct child IDs assigned to the same maternal ID, and therefore considered siblings; this number was used in the weights calculation later on (*ICD_summ*).
+
+*ICD_QC* code contains the code on QCing the diagnostic code data; this included converting of some of the ICD-10 codes present in the data into ICD-9; removal of the codes that could not be attributed to any ICD diagnosis, or are not diagnosable in women; removal of codes for procedures or internal administrative Meuhedet codes, due to focus on ICD-9 diagnosis in the study. No filtering is made with regard to frequency of the diagnoses at this point; after QC, there are 931 unique diagnoses in the dataset. 
+
+
+*ICD_summ* code uses output of *ICD_QC* as input; it contains the code on summarising the remaining ICD data, converting the input file (carried forward from ICD_QC) into a data format with one row per child ID, with columns indicating ICD-9 codes, and cell contents 0/1 information indicating absence/presence of those diagnoses. Running the code requires an earlier identification of children with ASD in the Meuchedet data, using *ASD_ID* code. 
+
+*ASD_ID* uses as inputs tables containing diagnostic information for both primarily ascertained children and their siblings, in both subcohort and the ASD sample. Inferring presence of an ASD diagnosis relies on both ICD-9 and ICD-10 diagnostic codes; for children receiving multiple ASD diagnoses, the first one is used for subsequent analyses (computation of follow-up time). 
+
+
+*matdx_missingness_check* uses mat_dx3.csv as input; it contains the code for all initial pre-processing (ICD QC and summary), and computes Cox regression coefficients for the first 10 diagnoses, with and without imputing data for the covariates. Data imputation is done using mice package, with the maximum number of iterations set to 5. Coefficients from those two sets of models are compared to verify if missingness has any substantial effects on the results. 
+
+
+*coxph* code uses output of *ICD_summ* as input; it contains the code for running the Cox regression models, testing associations between the diagnoses with high enough frequency, adjusted for covariates (DOB, maternal age, number of pregnancy diagnoses, SES), computing robust standard errors (correlation between siblings) and using regression weights, corresponding to the probability of being included in the sample. The loop also allows to compute Shoenefeld residuals for each association. 
+
+*matdx_permutation* uses as input both the results of the Cox regression (coxph) and the input data for the regression; the code is shown for a single diagnosis permutation. 
