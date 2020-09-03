@@ -1,0 +1,134 @@
+### get 0/1 ASD diagnosis on all children in the sample
+## broad definition of ASD (full spectrum, not just autistic disorder)
+
+## subcohort
+
+# read in diagnostic information on index children + sibs
+
+DATA_CID_DX_c <- read.csv("/*/control/Table9.csv", header = F, na.strings= ".U", sep = ",", stringsAsFactors =T)
+DATA_SID_DX_c <- read.csv("/*/control/Table11.csv", header = F, na.strings= ".U", sep = ",", stringsAsFactors =T)
+
+colnames(DATA_CID_DX_c) <- c("As", "IDs", "DX_DATY", "DX_DATM", "DX_DATD", "DX_CODE", "DX_DESC")
+colnames(DATA_SID_DX_c) <- c("As", "IDs", "DX_DATY", "DX_DATM", "DX_DATD", "DX_CODE", "DX_DESC")
+
+DATA_CID_DX_c$DX_DATE <- as.Date(with(DATA_CID_DX_c, paste(DX_DATY, DX_DATM, DX_DATD,sep="-")), "%Y-%m-%d") 
+DATA_SID_DX_c$DX_DATE <- as.Date(with(DATA_SID_DX_c, paste(DX_DATY, DX_DATM, DX_DATD,sep="-")), "%Y-%m-%d") 
+
+DATA_DX_c <- rbind(DATA_CID_DX_c, DATA_SID_DX_c)
+
+# identify IDs of children with any of the spectrum diagnoses
+
+asd299_c <- subset(DATA_DX_c, (DATA_DX_c$DX_CODE == "299" | DATA_DX_c$DX_CODE == "299.0" |DATA_DX_c$DX_DESC == "AUTISTIC DIS" | DATA_DX_c$DX_DESC == "INFANTILE AUTISM"))
+asd2991 <- subset(DATA_DX_c, (DATA_DX_c$DX_DESC == "CHILDHOOD DISINTEGRATIVE DIS" | DATA_DX_c$DX_CODE == "299.1"))
+asdF844 <- subset(DATA_DX_c, (DATA_DX_c$DX_DESC == "ATYPICAL AUTISM" | DATA_DX_c$DX_CODE == "F844" | DATA_DX_c$DX_CODE == "F84.4"))
+asdF84 <- subset(DATA_DX_c, (DATA_DX_c$DX_DESC == "PERVASIVE DEVELOPMENTAL DISORDERS" | DATA_DX_c$DX_CODE == "F84" | DATA_DX_c$DX_CODE == "F84.0"))
+asdF845 <- subset(DATA_DX_c, (DATA_DX_c$DX_DESC == "ASPERGER'S SYNDROME" | DATA_DX_c$DX_CODE == "F845" | DATA_DX_c$DX_CODE == "F84.5"))
+asd2998<- subset(DATA_DX_c, (DATA_DX_c$DX_DESC == "PERVASIVE DEVELOPMENTAL DIS NOS" | DATA_DX_c$DX_CODE == "299.8" | DATA_DX_c$DX_CODE == "299.9"))
+asdf849<- subset(DATA_DX_c, (DATA_DX_c$DX_DESC == "PERVASIVE DEVELOPMENTAL DISORDER  UNSPECIFIED" | DATA_DX_c$DX_CODE == "F849" | DATA_DX_c$DX_CODE == "F84.9"))
+asdf842<- subset(DATA_DX_c, (DATA_DX_c$DX_DESC == "RETT'S SYNDROME" | DATA_DX_c$DX_DESC == "RETT'S DIS" | DATA_DX_c$DX_CODE == "F842" | DATA_DX_c$DX_CODE == "F84.2"))
+
+allasd_c <- rbind(asd299_c, asd2991, asdf849, asd2998, asdF84, asdF845, asdf842, asdF844)  ## may contain duplicates 
+str(allasd_c)
+
+
+asd299_c <- asd299_c[!duplicated(asd299_c$IDs),]                  ## numbers of IDs with each diagnosis 
+dim(asd299_c)        #290
+
+asd2991 <- asd2991[!duplicated(asd2991$IDs),]
+dim(asd2991)         #2
+
+asdf849 <- asdf849[!duplicated(asdf849$IDs),]
+dim(asdf849)         #156
+
+asd2998 <- asd2998[!duplicated(asd2998$IDs),]
+dim(asd2998)         #334
+
+asdF84 <- asdF84[!duplicated(asdF84$IDs),]
+dim(asdF84)          #158
+
+asdF845 <- asdF845[!duplicated(asdF845$IDs),]
+dim(asdF845)         #78
+
+asdf842 <- asdf842[!duplicated(asdf842$IDs),]
+dim(asdf842)         #15
+
+asdF844 <- asdF844[!duplicated(asdF844$IDs),]
+dim(asdF844)         #7
+
+
+allasd2_c <- allasd_c[order(allasd_c$IDs,allasd_c$DX_DATE),]   ## order by IDs and dates of diagnosis 
+library(data.table)
+allasd3_c <- data.table(allasd2_c, key='IDs')                  ## convert into data table 
+allasd4_c <- allasd3_c[, .SD[1,], by=IDs]                      ## select first row (earliers dx) per ID
+
+
+## research 
+
+# read in diagnostic information on index children + sibs
+
+DATA_CID_DX <- read.csv("/*/research/Table9.csv", header = F, na.strings= ".U", sep = ",", stringsAsFactors =T)
+DATA_SID_DX <- read.csv("/*/research/Table11.csv", header = F, na.strings= ".U", sep = ",", stringsAsFactors =T)
+
+colnames(DATA_CID_DX) <- c("As", "IDs", "DX_DATY", "DX_DATM", "DX_DATD", "DX_CODE", "DX_DESC")
+colnames(DATA_SID_DX) <- c("As", "IDs", "DX_DATY", "DX_DATM", "DX_DATD", "DX_CODE", "DX_DESC")
+
+DATA_CID_DX$DX_DATE <- as.Date(with(DATA_CID_DX, paste(DX_DATY, DX_DATM, DX_DATD,sep="-")), "%Y-%m-%d") 
+DATA_SID_DX$DX_DATE <- as.Date(with(DATA_SID_DX, paste(DX_DATY, DX_DATM, DX_DATD,sep="-")), "%Y-%m-%d") 
+
+DATA_DX <- rbind(DATA_CID_DX, DATA_SID_DX)
+
+
+# identify IDs of children with any of the spectrum diagnoses
+
+asd299 <- subset(DATA_DX, (DATA_DX$DX_CODE == "299" | DATA_DX$DX_CODE == "299.0" |DATA_DX$DX_DESC == "AUTISTIC DIS" | DATA_DX$DX_DESC == "INFANTILE AUTISM"))
+asd2991 <- subset(DATA_DX, (DATA_DX$DX_DESC == "CHILDHOOD DISINTEGRATIVE DIS" | DATA_DX$DX_CODE == "299.1"))
+asdF844 <- subset(DATA_DX, (DATA_DX$DX_DESC == "ATYPICAL AUTISM" | DATA_DX$DX_CODE == "F844" | DATA_DX$DX_CODE == "F84.4"))
+asdF84 <- subset(DATA_DX, (DATA_DX$DX_DESC == "PERVASIVE DEVELOPMENTAL DISORDERS" | DATA_DX$DX_CODE == "F84" | DATA_DX$DX_CODE == "F84.0"))
+asdF845 <- subset(DATA_DX, (DATA_DX$DX_DESC == "ASPERGER'S SYNDROME" | DATA_DX$DX_CODE == "F845" | DATA_DX$DX_CODE == "F84.5"))
+asd2998<- subset(DATA_DX, (DATA_DX$DX_DESC == "PERVASIVE DEVELOPMENTAL DIS NOS" | DATA_DX$DX_CODE == "299.8" | DATA_DX$DX_CODE == "299.9"))
+asdf849<- subset(DATA_DX, (DATA_DX$DX_DESC == "PERVASIVE DEVELOPMENTAL DISORDER  UNSPECIFIED" | DATA_DX$DX_CODE == "F849" | DATA_DX$DX_CODE == "F84.9"))
+asdf842<- subset(DATA_DX, (DATA_DX$DX_DESC == "RETT'S SYNDROME" | DATA_DX$DX_DESC == "RETT'S DIS" | DATA_DX$DX_CODE == "F842" | DATA_DX$DX_CODE == "F84.2"))
+
+allasd <- rbind(asd299, asd2991, asdf849, asd2998, asdF84, asdF845, asdf842, asdF844)   ## may contain duplicates 
+str(allasd)
+
+asd299 <- asd299[!duplicated(asd299$IDs),]                  ## numbers of IDs with each diagnosis
+dim(asd299)        #864
+
+asd2991 <- asd2991[!duplicated(asd2991$IDs),]
+dim(asd2991)       #4
+
+asdf849 <- asdf849[!duplicated(asdf849$IDs),]
+dim(asdf849)       #460
+
+asd2998 <- asd2998[!duplicated(asd2998$IDs),]
+dim(asd2998)       #855
+
+asdF84 <- asdF84[!duplicated(asdF84$IDs),]
+dim(asdF84)        #516
+
+asdF845 <- asdF845[!duplicated(asdF845$IDs),]
+dim(asdF845)       #238
+
+asdf842 <- asdf842[!duplicated(asdf842$IDs),]
+dim(asdf842)       #26
+
+asdF844 <- asdF844[!duplicated(asdF844$IDs),]
+dim(asdF844)       #20
+
+
+allasd2 <- allasd[order(allasd$IDs,allasd$DX_DATE),]   ## order by IDs and dates of diagnosis 
+library(data.table)
+allasd3 <- data.table(allasd2, key='IDs')              ## convert into data table
+allasd4 <- allasd3[, .SD[1,], by=IDs]                  ## select first row (earliers dx) per ID
+
+
+
+allasd5 <- rbind(allasd4_c, allasd4)                                    ## merge diagnostic data from subcohort and research files
+library(plyr)
+allasd6 <- ddply(allasd5, "IDs", plyr::summarize, min = min(DX_DATE))   ## select earliest diagnostic date, in case ID present in both research/subcohort, but one more complete dx data
+allasd6$DX_DATE <- allasd6$min                                          ## indicate earlierst time the child received an ASD diagnosis
+allasd7 <- merge(allasd6, allasd5, by=c("IDs", "DX_DATE"))              ## add min var to remainder of the data
+allasd8 <- allasd7[!duplicated(allasd7$IDs),]                           ## remove potential duplicates 
+
+write.csv(allasd8, "/*/matdx_asd.csv")
