@@ -1,0 +1,30 @@
+### test associations within the diagnoses with >=10 cases and controls 
+
+asd01.2 <- cbind(asd01[,1:12], asd01[,dx], asd01[,835], asd01[,836])
+colnames(asd01.2)[162:163] <- c("DOBY", "w")
+
+p <- data.frame()
+
+for(i in 13:161){
+  a <- coxph(Surv(time_fu, ASD)~asd01.2[,i] + DOBY + mage + preg_all + SES + cluster(MID), weights=w, data=asd01.2)
+  b <- cox.zph(a)
+  p[i,1] <- summary(a)$coefficients[1,6]  # p-val
+  p[i,2] <- eform(a)[1,1]                 # HR
+  p[i,3] <- eform(a)[1,2]                 # 2.5%
+  p[i,4] <- eform(a)[1,3]                 # 97.5%
+  p[i,5] <- colnames(asd01.2[i])          # icd code
+  p[i,6] <- b$table[13]
+  p[i,7] <- b$table[18]
+}
+
+p[,8] <- p.adjust(p[,1], method = "BH")
+p[,9] <- p.adjust(p[,1], method = "bonferroni")
+colnames(p) <- c("p-val", "HR", "2.5%", "97.5%", "ICD9", "zph_dx", "zph_global", "q-val", "Bonferroni")
+
+p <- p[!is.na(p[,1]),]
+
+nom <- subset(p, p[,1] < 0.05)                                       
+nom <- nom[!is.na(nom$ICD9),]                                         
+nom_risk <- subset(nom, nom$HR > 1)                                         
+
+
