@@ -1,0 +1,216 @@
+library(biostat3)
+library(dplyr)
+library(plyr)
+library(miceadds)
+library(glmnet)
+library(clusterSEs)
+library(survival)
+library(reshape2)
+library(psych)
+library(mice)
+
+## summarize prenancy diagnostic data 
+
+library(dplyr)
+
+matdx <- 
+     transform(matdx,
+     preg = ifelse((date_dif < 0 & date_dif >= -636), 1, 0))    # assign values 0/1 if the dx during pregnancy + year before
+
+length(unique(matdx$ID))                                        ## 88713 unique child IDs
+length(unique(matdx$MID))                                       ## 34211 unique maternal IDs
+
+matdx2 <- subset(matdx, matdx$preg == 1)                        # select pregnancy diagnoses 
+
+
+mat_miss <- setdiff(unique(matdx$ID), unique(matdx2$ID))        # add info on IDs whose mothers didn't have any pregnancy diagnoses
+matdx_m <- subset(matdx, matdx$ID %in% mat_miss)                # (removes lots of rows with preg=0 that slow things down without adding any info)
+matdx_m <- matdx_m[!duplicated(matdx_m$ID),]
+
+matdx3 <- rbind(matdx2, matdx_m)
+
+length(unique(matdx3$ID))                   ## 88713 unique child IDs
+length(unique(matdx3$MID))                  ## 34211 unique maternal IDs
+
+count <- as.data.frame(matdx3 %>% group_by(ID, icd103) %>% filter (preg=="1") %>% tally())   # count number of all icd codes (lev3) in pregnancy within icd code
+count$preg_n3 <- count$n
+count$n <- NULL
+
+count_t <- as.data.frame(matdx3 %>% group_by(ID) %>% filter (preg=="1") %>% tally())            # count number of all icd codes (lev3) in pregnancy 
+count_t$preg_all <- count_t$n
+count_t$n <- NULL
+
+## merge demographic info with dx counts
+
+matdx4 <- merge(matdx3, count, by=c("ID", "icd103"), all.x=T)
+matdx4$preg_n3[is.na(matdx4$preg_n3)] <- 0
+
+matdx4 <- merge(matdx4, count_t, by="ID", all.x=T)
+matdx4$preg_all[is.na(matdx4$preg_all)] <- 0
+
+matdx4 <- as.data.frame(matdx4 %>%
+    dplyr::select(ID, MID, FID, DOB, DOD, SEX, SES, mage, page, date_dif, DX_CODE, icd103, date_dif, preg_n3, preg_all, weight, subcoh) %>%
+    filter (  preg_n3 != "NA" ) %>%
+    group_by(ID, icd103) %>% filter(row_number() == 1))   ## dataset with pregnancy diagnoses only; only one line per unique level 3 
+
+matdx4 <- as.data.frame(matdx4)
+
+length(unique(matdx4$ID))                                             ## 88713 unique child IDs
+length(unique(matdx4$MID))                                            ## 34211 unique maternal IDs
+
+
+
+## identify ASD cases and compute follow-up time
+
+allasd9 <- read.csv("/*/matdx_asd.csv")                               ##  file created using ASD_ID code, includes information on IDs with ASD in the sample
+matdx4 <- merge(matdx4, allasd9, by="ID", all.x=T)
+rm(allasd9)
+
+matdx4$fu_dateY <- 2015                                               ##  follow-up time run until Jan 26 2015, ASD diagnosis or death
+matdx4$fu_dateM <- 01
+matdx4$fu_dateD <- 26
+
+matdx4$fu_date <- as.Date(with(matdx4, paste(fu_dateY, fu_dateM, fu_dateD,sep="-")), "%Y-%m-%d") 
+
+matdx4$ASD_DX_DATE[is.na(matdx4$ASD_DX_DATE)] <- "2030-10-10"
+matdx4$DOD[is.na(matdx4$DOD)] <- "2030-10-10"
+
+fu_min <- transform(matdx4, min = pmin(fu_date, ASD_DX_DATE, DOD, na.rm=T))      # choose the earliest follow-up end date (fu end, ASD, death)
+
+a <- fu_min[, c("ID", "min")]
+a <- as.data.frame(a)
+
+matdx4$fu_dateY <- NULL
+matdx4$fu_dateM <- NULL
+matdx4$fu_dateD <- NULL
+
+matdx4 <- cbind(matdx4, a)
+matdx4$DOB <- as.Date(matdx4$DOB, "%Y-%m-%d")
+matdx4$time_fu <- as.numeric (difftime(matdx4$min , matdx4$DOB , units = c("days")))
+
+matdx4$ASD <- 0
+matdx4$ASD[!is.na(matdx4$ASD_DX_DESC)] <- 1
+
+
+
+##  assign 0 where certain maternal code was not present in the record (inferred absence of the diagnosis)
+
+matdx4$ASD[is.na(matdx4$ASD)] <- 0
+matdx4$preg_n3[is.na(matdx4$preg_n3)] <- 0
+
+matdx4$ASD_DX_DESC <- NULL
+matdx4$ASD_DX_DATE <- NULL
+matdx4$min <- NULL
+matdx4$fu_dateD <- NULL
+matdx4$fu_dateM <- NULL
+matdx4$fu_dateY <- NULL
+
+## identify missing SES and impute using mice function
+## (verified missingness does not affect the results - *matdx_missingness_check*)
+
+a <-subset(matdx4, is.na(matdx4$SES))
+length(unique(a$MID))  ## 3595
+length(unique(a$ID))   ## 8511
+
+a <-subset(matdx4, is.na(matdx4$mage))
+length(unique(a$MID))  ## 0
+length(unique(a$ID))   ## 0
+
+## exclude v.young/old mothers/fathers
+
+matdx4 <- subset(matdx4, matdx4$mage >= 13 & matdx4$mage <= 55)
+length(unique(matdx4$MID))  ## 34211 - 34201 = 10
+length(unique(matdx4$ID))   ## 88713 - 88695 = 18    
+
+matdx4 <- subset(matdx4, matdx4$page > 13 | is.na(matdx4$page))
+length(unique(matdx4$MID))  ## 34201 - 34199 = 2
+length(unique(matdx4$ID))   ## 88695 - 88690 = 5
+
+dx <- unique(as.character(matdx4$icd103)) # 834
+
+
+
+## select variables for the final analysis and convert the data into wide format, 
+## with each ICD-9 code as a separate column, with entries indicating their count around pregnancy
+
+asd_preg <- as.data.frame(matdx4 %>%
+                            dplyr::select(MID, ID, DOB, SEX, SES, time_fu, mage, page, icd103, preg_n3, preg_all, ASD, weight, subcoh)) 
+
+asd_preg2 <- dcast(asd_preg, ID + MID + DOB + SEX + SES + mage + page + ASD + time_fu + weight + subcoh + preg_all ~ icd103, value.var="preg_n3")
+
+
+
+#### weights calculation
+
+# “Subcoh” variable indicated whether the child was ascertained as part of the random subsample 
+# of the Meuhedet birth cohort (1) or due to their / their sibling’s ASD diagnosis (0). 
+# Children ascertained through both strategies were considered 0, and the duplicate records were removed. 
+
+# “Weights” variable indicates number of distinct child IDs assigned to the same maternal ID, and therefore \
+# considered siblings; 
+
+
+asd_preg2$subcoh[asd_preg2$ASD == 1] <- 0
+
+asd_preg2$w[asd_preg2$subcoh == 0] <- 1
+
+asd_preg2$w[asd_preg2$subcoh == 1 & asd_preg2$weight == 1] <- 5.128
+asd_preg2$w[asd_preg2$subcoh == 1 & asd_preg2$weight == 2] <- 2.841
+asd_preg2$w[asd_preg2$subcoh == 1 & asd_preg2$weight == 3] <- 1.853
+asd_preg2$w[asd_preg2$subcoh == 1 & asd_preg2$weight == 4] <- 1.364
+asd_preg2$w[asd_preg2$subcoh == 1 & asd_preg2$weight >= 5] <- 1.078
+
+length(unique(asd_preg2$ID))  ## 88690
+length(unique(asd_preg2$MID)) ## 34199
+
+asd_preg2 <- subset(asd_preg2, asd_preg2$DOBY != "NA")  # MID = 34199, ID =  88690
+asd_preg2 <- subset(asd_preg2, asd_preg2$mage != "NA")  # MID = 34199, ID =  88690
+asd_preg2 <- subset(asd_preg2, asd_preg2$MID != "NA")   # MID = 34199, ID =  88690
+asd_preg2 <- subset(asd_preg2, asd_preg2$w != "NA")     # MID = 34199, ID =  88690
+asd_preg2 <- subset(asd_preg2, asd_preg2$SES != "NA")   # MID = 30864, ID =  80187
+
+table(asd_preg2$ASD)
+# 0     1 
+#79055  1132   
+
+asd_preg2$X <- NULL                                     ## 848 - 14 = 834 unique diagnoses 
+
+asd_preg2[,13:846][is.na(asd_preg2[,13:846])] <- 0
+
+asd_preg3 <- asd_preg2[ - as.numeric(which(apply(asd_preg2, 2, var) == 0))]                           ## remove columns with no variance = 822 dx 
+missed_dx <- setdiff(colnames(asd_preg2), colnames(asd_preg3)) #  12 dx ("160" "200" "235" "432" "762" "852" "860" "861" "960" "E93" "V10" "V12")
+
+
+
+## get frequencies of diagnoses and select diagnoses present in at least 10 cases and 10 controls
+
+asd01 <- asd_preg3
+
+for(i in 13:834){
+  asd01[,i][asd01[,i] == 0] <- 0
+  asd01[,i][asd01[,i] != 0] <- 1
+}
+
+freq <- list()
+
+for(i in 13:834){
+  freq[[i]] <- table(asd01[,i], asd01$ASD)
+}
+
+freqs <- data.frame()
+
+for(i in 13:834){
+  nex_ctrl <- freq[[i]][1]
+  ex_ctrl <- freq[[i]][2]
+  nex_case <- freq[[i]][3]
+  ex_case <- freq[[i]][4]
+  freqs[i,1:4] <- cbind(nex_ctrl, ex_ctrl, nex_case, ex_case)
+}
+
+freqs <- freqs[13:834,]
+freqs$icd <- colnames(asd01[,13:834])
+
+
+sel <- subset(freqs, freqs$V2 >= 10 & freqs$V4 >= 10)
+dx <- sel$icd      ## identify dx with >10 either cases or controls exposed - 148 dx 
+
